@@ -257,11 +257,17 @@ export default function Page() {
                         </div>
                         <span className="badge">{a.status}</span>
                       </div>
-                      {a.status === "concluido" && (
-                        <div className="mt-2">
-                          <button className="btn-outline" onClick={()=>downloadJSON(a)}>Exportar respostas (JSON)</button>
-                        </div>
-                      )}
+                    {a.status === "concluido" && (
+  <div className="mt-2">
+    <button
+      className="btn-outline"
+      onClick={()=>downloadJSON(a, templatesById[a.templateId])}
+    >
+      Exportar respostas (JSON)
+    </button>
+  </div>
+)}
+
                     </div>
                   ))}
               </div>
@@ -351,6 +357,96 @@ function Responder({ code, assignment, templatesById, onSubmit }:{
 
 function MchatResultado({ template, respostas }:{ template:any, respostas:Record<string,string> }) {
   const r = riskScoreFromMchat(template, respostas);
+
+  function exportarPDF() {
+    const linhas = template.itens.map((item:any) => {
+      const v = respostas[item.id];
+      const escolha = v === "0" ? "Sim" : v === "1" ? "Não" : "—";
+      const critico = template.criticos?.has(item.id) ? " (crítico)" : "";
+      return `<tr><td style="padding:6px 8px;border:1px solid #ddd;">${item.texto}${critico}</td><td style="padding:6px 8px;border:1px solid #ddd;">${escolha}</td></tr>`;
+    }).join("");
+
+    const html = `
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8" />
+<title>Relatório M-CHAT</title>
+<style>
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; color:#0f172a; }
+  h1 { font-size: 18px; margin:0 0 4px; }
+  h2 { font-size: 14px; margin:16px 0 8px; }
+  .muted { color:#475569; font-size:12px; }
+  .box { border:1px solid #e2e8f0; border-radius:12px; padding:12px; margin-top:12px; }
+  table { border-collapse: collapse; width:100%; font-size:12px; }
+  th, td { border:1px solid #e2e8f0; padding:6px 8px; text-align:left; vertical-align:top; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  @media print { .no-print { display:none } }
+</style>
+</head>
+<body>
+  <div class="grid">
+    <div style="display:flex;gap:10px;align-items:center">
+      <div style="width:48px;height:48px;border-radius:50%;border:1px solid #fecdd3;overflow:hidden">
+        <img src="/logo.png" alt="Logo" style="width:100%;height:100%;object-fit:contain" />
+      </div>
+      <div>
+        <h1>Neuropsicóloga – Bárbara de Freitas</h1>
+        <div class="muted">Relatório de respostas — M-CHAT</div>
+      </div>
+    </div>
+    <div style="text-align:right">
+      <div class="muted">Gerado em ${new Date().toLocaleString('pt-BR')}</div>
+    </div>
+  </div>
+
+  <div class="box">
+    <h2>Resultado automático</h2>
+    <div class="muted">Regra: risco positivo se &gt; 3 pontos totais OU ≥ 2 itens críticos (2, 7, 9, 13, 14, 15). Resultado de triagem; não constitui diagnóstico.</div>
+    <table style="margin-top:8px">
+      <tr><th>Pontuação total de risco</th><td>${r.total}</td></tr>
+      <tr><th>Itens críticos falhos</th><td>${r.critFails}</td></tr>
+      <tr><th>Classificação</th><td>${r.classif}</td></tr>
+      <tr><th>Faixa</th><td>${r.faixa}</td></tr>
+    </table>
+  </div>
+
+  <div class="box">
+    <h2>Respostas</h2>
+    <table>
+      <tr><th>Pergunta</th><th>Resposta</th></tr>
+      ${linhas}
+    </table>
+  </div>
+
+  <div class="muted" style="margin-top:12px">LGPD: para uso clínico real, armazenar em backend seguro com consentimento.</div>
+  <button class="no-print" onclick="window.print()" style="margin-top:16px;padding:8px 12px;border-radius:8px;border:1px solid #e2e8f0;background:#fff">Imprimir / Salvar em PDF</button>
+</body>
+</html>`;
+
+    const w = window.open("", "_blank", "noopener,noreferrer,width=900,height=700");
+    if (w) {
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+    }
+  }
+
+  return (
+    <div className="rounded-xl border bg-emerald-50 p-4 text-sm">
+      <div className="font-semibold">Resultado automático — M-CHAT</div>
+      <div className="mt-1">Pontuação total de risco: <span className="font-medium">{r.total}</span> • Itens críticos falhos: <span className="font-medium">{r.critFails}</span></div>
+      <div>Classificação: <span className="font-medium">{r.classif}</span> • Faixa sugerida: <span className="font-medium">{r.faixa}</span></div>
+      <div className="text-slate-600">Regra: risco positivo se <em>&gt; 3</em> pontos totais OU <em>&ge; 2</em> itens críticos (2, 7, 9, 13, 14, 15). Este resultado é triagem e não constitui diagnóstico.</div>
+
+      <div className="mt-3">
+        <button className="btn" onClick={exportarPDF}>Exportar PDF</button>
+      </div>
+    </div>
+  );
+}
+
+  const r = riskScoreFromMchat(template, respostas);
   return (
     <div className="rounded-xl border bg-emerald-50 p-4 text-sm">
       <div className="font-semibold">Resultado automático — M-CHAT</div>
@@ -361,12 +457,53 @@ function MchatResultado({ template, respostas }:{ template:any, respostas:Record
   );
 }
 
-function downloadJSON(assignment:any) {
-  const blob = new Blob([JSON.stringify(assignment, null, 2)], { type: "application/json" });
+// Export JSON (com pontuação e classificação)
+function downloadJSON(assignment:any, template:any) {
+  // Converte "0"/"1" para "Sim"/"Não"
+  const respostasHumanas: Record<string, string> = {};
+  for (const item of template.itens) {
+    const v = assignment.responses[item.id];
+    respostasHumanas[item.id] = v === "0" ? "Sim" : v === "1" ? "Não" : "";
+  }
+
+  // Calcula o resultado automático (M-CHAT)
+  let resultado: any = null;
+  if (assignment.templateId === "mchat") {
+    resultado = riskScoreFromMchat(template, assignment.responses);
+  }
+
+  const exportData = {
+    id: assignment.id,
+    destinatario: assignment.responsavel,
+    avaliado: assignment.crianca,
+    templateId: assignment.templateId,
+    templateNome: template?.nome || "",
+    destinatarioTipo: assignment.destinatarioTipo,
+    profissionalSubtipo: assignment.profissionalSubtipo,
+    createdAt: assignment.createdAt,
+    submittedAt: assignment.submittedAt,
+    // Resultado calculado
+    resultado: resultado ? {
+      pontuacao_total: resultado.total,
+      itens_criticos_falhos: resultado.critFails,
+      classificacao: resultado.classif,
+      faixa: resultado.faixa,
+    } : null,
+    // Respostas em formato legível
+    respostas: template.itens.map((item:any) => ({
+      id: item.id,
+      pergunta: item.texto,
+      resposta: respostasHumanas[item.id] || "",
+      critico: template.criticos?.has(item.id) || false,
+    })),
+    observacao: "Resultado automático de triagem; não constitui diagnóstico. Para uso clínico real, armazenar em backend seguro + LGPD."
+  };
+
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `respostas_${assignment.crianca}_${assignment.id}.json`;
+  a.download = `MCHAT_${assignment.crianca}_${assignment.id}.json`;
   a.click();
   URL.revokeObjectURL(url);
 }
